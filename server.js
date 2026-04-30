@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const sqlite3 = require("sqlite3").verbose();
+const Database = require("better-sqlite3");
 
 const app = express();
 
@@ -9,10 +9,10 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 // Database
-const db = new sqlite3.Database("./locations.db");
+const db = new Database("locations.db");
 
 // Create table
-db.run(`
+db.prepare(`
   CREATE TABLE IF NOT EXISTS locations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -21,65 +21,81 @@ db.run(`
     lat REAL,
     lng REAL
   )
-`);
+`).run();
+
+// =====================
+// ROUTES
+// =====================
 
 // GET all locations
 app.get("/locations", (req, res) => {
-  db.all("SELECT * FROM locations", [], (err, rows) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Failed to fetch" });
-    }
+  try {
+    const rows = db.prepare("SELECT * FROM locations").all();
     res.json(rows);
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch locations" });
+  }
 });
 
 // ADD location
 app.post("/locations", (req, res) => {
-  const { name, category, description, lat, lng } = req.body;
+  try {
+    const { name, category, description, lat, lng } = req.body;
 
-  db.run(
-    "INSERT INTO locations (name, category, description, lat, lng) VALUES (?, ?, ?, ?, ?)",
-    [name, category, description, lat, lng],
-    function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: "Insert failed" });
-      }
-      res.json({ id: this.lastID });
+    if (!name || lat === undefined || lng === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
-  );
+
+    const result = db
+      .prepare(
+        "INSERT INTO locations (name, category, description, lat, lng) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(name, category, description, lat, lng);
+
+    res.json({ id: result.lastInsertRowid });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Insert failed" });
+  }
 });
 
 // UPDATE location
 app.put("/locations/:id", (req, res) => {
-  const { name, category, description, lat, lng } = req.body;
+  try {
+    const { name, category, description, lat, lng } = req.body;
 
-  db.run(
-    "UPDATE locations SET name=?, category=?, description=?, lat=?, lng=? WHERE id=?",
-    [name, category, description, lat, lng, req.params.id],
-    function (err) {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: "Update failed" });
-      }
-      res.json({ updated: this.changes });
-    }
-  );
+    const result = db
+      .prepare(
+        "UPDATE locations SET name=?, category=?, description=?, lat=?, lng=? WHERE id=?"
+      )
+      .run(name, category, description, lat, lng, req.params.id);
+
+    res.json({ updated: result.changes });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Update failed" });
+  }
 });
 
 // DELETE location
 app.delete("/locations/:id", (req, res) => {
-  db.run("DELETE FROM locations WHERE id=?", req.params.id, function (err) {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Delete failed" });
-    }
-    res.json({ deleted: this.changes });
-  });
+  try {
+    const result = db
+      .prepare("DELETE FROM locations WHERE id=?")
+      .run(req.params.id);
+
+    res.json({ deleted: result.changes });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Delete failed" });
+  }
 });
 
-// Start server
+// =====================
+// START SERVER
+// =====================
+
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
