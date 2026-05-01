@@ -1,71 +1,122 @@
-const express = require("express");
-const cors = require("cors");
-const { Pool } = require("pg");
+import express from "express";
+import pkg from "pg";
+import cors from "cors";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
+
+const { Pool } = pkg;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔗 Connect to PostgreSQL (Render auto provides DATABASE_URL)
+/* =========================
+   DATABASE (PostgreSQL)
+========================= */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
+  ssl: { rejectUnauthorized: false }
+});
+
+/* =========================
+   CLOUDINARY CONFIG
+========================= */
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "auv-map",
+    allowed_formats: ["jpg", "png", "jpeg"]
   }
 });
 
-// ✅ Create table if not exists
-pool.query(`
-  CREATE TABLE IF NOT EXISTS locations (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    category TEXT,
-    description TEXT,
-    lat FLOAT,
-    lng FLOAT
-  );
-`);
+const upload = multer({ storage });
 
-// 📥 GET all locations
+/* =========================
+   ROUTES
+========================= */
+
+// GET all locations
 app.get("/locations", async (req, res) => {
-  const result = await pool.query("SELECT * FROM locations");
-  res.json(result.rows);
+  try {
+    const result = await pool.query("SELECT * FROM locations ORDER BY id DESC");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ➕ ADD location
+// ADD location
 app.post("/locations", async (req, res) => {
-  const { name, category, description, lat, lng } = req.body;
+  const { name, category, description, lat, lng, image_url } = req.body;
 
-  const result = await pool.query(
-    "INSERT INTO locations (name, category, description, lat, lng) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-    [name, category, description, lat, lng]
-  );
-
-  res.json(result.rows[0]);
+  try {
+    const result = await pool.query(
+      `INSERT INTO locations (name, category, description, lat, lng, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [name, category, description, lat, lng, image_url || null]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ✏️ UPDATE location
+// UPDATE location
 app.put("/locations/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, category, description, lat, lng } = req.body;
+  const { name, category, description, lat, lng, image_url } = req.body;
 
-  await pool.query(
-    "UPDATE locations SET name=$1, category=$2, description=$3, lat=$4, lng=$5 WHERE id=$6",
-    [name, category, description, lat, lng, id]
-  );
-
-  res.sendStatus(200);
+  try {
+    const result = await pool.query(
+      `UPDATE locations
+       SET name=$1, category=$2, description=$3, lat=$4, lng=$5, image_url=$6
+       WHERE id=$7
+       RETURNING *`,
+      [name, category, description, lat, lng, image_url || null, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 🗑 DELETE location
+// DELETE location
 app.delete("/locations/:id", async (req, res) => {
   const { id } = req.params;
 
-  await pool.query("DELETE FROM locations WHERE id=$1", [id]);
-
-  res.sendStatus(200);
+  try {
+    await pool.query("DELETE FROM locations WHERE id=$1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(3001, () => {
-  console.log("Server running on port 3001");
+/* =========================
+   IMAGE UPLOAD ROUTE
+========================= */
+app.post("/upload", upload.single("image"), (req, res) => {
+  try {
+    res.json({
+      imageUrl: req.file.path
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+/* =========================
+   SERVER
+========================= */
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
