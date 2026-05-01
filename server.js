@@ -11,17 +11,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-/* =========================
-   DATABASE (PostgreSQL)
-========================= */
+/* DATABASE */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-/* =========================
-   CLOUDINARY CONFIG
-========================= */
+/* CLOUDINARY */
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -38,11 +34,9 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({ storage });
 
-/* =========================
-   ROUTES
-========================= */
+/* ROUTES */
 
-// GET all locations
+// GET
 app.get("/locations", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM locations ORDER BY id DESC");
@@ -52,7 +46,7 @@ app.get("/locations", async (req, res) => {
   }
 });
 
-// ADD location
+// POST
 app.post("/locations", async (req, res) => {
   const { name, category, description, lat, lng, image_url } = req.body;
 
@@ -69,53 +63,33 @@ app.post("/locations", async (req, res) => {
   }
 });
 
-// UPDATE location
-app.put("/locations/:id", async (req, res) => {
-  const { id } = req.params;
-  const { name, category, description, lat, lng, image_url } = req.body;
-
-  try {
-    const result = await pool.query(
-      `UPDATE locations
-       SET name=$1, category=$2, description=$3, lat=$4, lng=$5, image_url=$6
-       WHERE id=$7
-       RETURNING *`,
-      [name, category, description, lat, lng, image_url || null, id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE location
+// DELETE
 app.delete("/locations/:id", async (req, res) => {
-  const { id } = req.params;
-
   try {
-    await pool.query("DELETE FROM locations WHERE id=$1", [id]);
+    await pool.query("DELETE FROM locations WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/* =========================
-   IMAGE UPLOAD ROUTE
-========================= */
-app.post("/upload", upload.single("image"), (req, res) => {
-  try {
-    res.json({
-      imageUrl: req.file.path
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Upload failed" });
-  }
+/* SAFE UPLOAD ROUTE */
+app.post("/upload", (req, res) => {
+  upload.single("image")(req, res, function (err) {
+    if (err) {
+      console.error("UPLOAD ERROR:", err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    res.json({ imageUrl: req.file.path });
+  });
 });
 
-/* =========================
-   SERVER
-========================= */
+/* SERVER */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
