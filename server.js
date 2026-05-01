@@ -1,103 +1,71 @@
 const express = require("express");
 const cors = require("cors");
-const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 
 const app = express();
-
-// Middleware
-app.use(cors({ origin: "*" }));
+app.use(cors());
 app.use(express.json());
 
-// Database
-const db = new Database("locations.db");
+// 🔗 Connect to PostgreSQL (Render auto provides DATABASE_URL)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
-// Create table
-db.prepare(`
+// ✅ Create table if not exists
+pool.query(`
   CREATE TABLE IF NOT EXISTS locations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT,
     category TEXT,
     description TEXT,
-    lat REAL,
-    lng REAL
-  )
-`).run();
+    lat FLOAT,
+    lng FLOAT
+  );
+`);
 
-// =====================
-// ROUTES
-// =====================
-
-// GET all locations
-app.get("/locations", (req, res) => {
-  try {
-    const rows = db.prepare("SELECT * FROM locations").all();
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch locations" });
-  }
+// 📥 GET all locations
+app.get("/locations", async (req, res) => {
+  const result = await pool.query("SELECT * FROM locations");
+  res.json(result.rows);
 });
 
-// ADD location
-app.post("/locations", (req, res) => {
-  try {
-    const { name, category, description, lat, lng } = req.body;
+// ➕ ADD location
+app.post("/locations", async (req, res) => {
+  const { name, category, description, lat, lng } = req.body;
 
-    if (!name || lat === undefined || lng === undefined) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+  const result = await pool.query(
+    "INSERT INTO locations (name, category, description, lat, lng) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+    [name, category, description, lat, lng]
+  );
 
-    const result = db
-      .prepare(
-        "INSERT INTO locations (name, category, description, lat, lng) VALUES (?, ?, ?, ?, ?)"
-      )
-      .run(name, category, description, lat, lng);
-
-    res.json({ id: result.lastInsertRowid });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Insert failed" });
-  }
+  res.json(result.rows[0]);
 });
 
-// UPDATE location
-app.put("/locations/:id", (req, res) => {
-  try {
-    const { name, category, description, lat, lng } = req.body;
+// ✏️ UPDATE location
+app.put("/locations/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, category, description, lat, lng } = req.body;
 
-    const result = db
-      .prepare(
-        "UPDATE locations SET name=?, category=?, description=?, lat=?, lng=? WHERE id=?"
-      )
-      .run(name, category, description, lat, lng, req.params.id);
+  await pool.query(
+    "UPDATE locations SET name=$1, category=$2, description=$3, lat=$4, lng=$5 WHERE id=$6",
+    [name, category, description, lat, lng, id]
+  );
 
-    res.json({ updated: result.changes });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Update failed" });
-  }
+  res.sendStatus(200);
 });
 
-// DELETE location
-app.delete("/locations/:id", (req, res) => {
-  try {
-    const result = db
-      .prepare("DELETE FROM locations WHERE id=?")
-      .run(req.params.id);
+// 🗑 DELETE location
+app.delete("/locations/:id", async (req, res) => {
+  const { id } = req.params;
 
-    res.json({ deleted: result.changes });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Delete failed" });
-  }
+  await pool.query("DELETE FROM locations WHERE id=$1", [id]);
+
+  res.sendStatus(200);
 });
 
-// =====================
-// START SERVER
-// =====================
-
-const PORT = process.env.PORT || 3001;
-
-app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+app.listen(3001, () => {
+  console.log("Server running on port 3001");
 });
