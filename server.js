@@ -63,6 +63,32 @@ app.post("/locations", async (req, res) => {
   }
 });
 
+// UPDATE (PUT)
+// UPDATE (PUT)
+app.put("/locations/:id", async (req, res) => {
+  const { name, category, description, lat, lng, image_url } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE locations
+       SET name=$1,
+           category=$2,
+           description=$3,
+           lat=$4,
+           lng=$5,
+           image_url=$6
+       WHERE id=$7
+       RETURNING *`,
+      [name, category, description, lat, lng, image_url, req.params.id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE
 app.delete("/locations/:id", async (req, res) => {
   try {
